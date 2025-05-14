@@ -1,147 +1,159 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
+import streamlit as st
+from utils.scraper import BeralandScraper
+from utils.data_helpers import get_csv_download_link, get_excel_download_link
 import time
-import csv
-import re
+import os
 
-# Setup Chrome options
-chrome_options = Options()
-chrome_options.add_argument("--headless")  # Run in headless mode (no UI)
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
+# Set page config
+st.set_page_config(
+    page_title="Beraland Ecosystem Exporter",
+    page_icon="🐻",
+    layout="wide"
+)
 
-# Setup WebDriver
-# Note: You need to download chromedriver and specify its path here
-webdriver_service = Service('path/to/chromedriver')  # Update this path
-driver = webdriver.Chrome(service=webdriver_service, options=chrome_options)
+# App title and branding
+def render_header():
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.title("🐻 Beraland Ecosystem Exporter")
+        st.markdown("""
+        Export projects and their Twitter accounts from the Beraland ecosystem with one click.
+        """)
+    with col2:
+        # GitHub link
+        st.markdown("""
+        <div style="text-align: right; margin-top: 20px;">
+            <a href="https://github.com/yourusername/beraland-ecosystem-exporter" target="_blank">
+                <img src="https://img.shields.io/github/stars/yourusername/beraland-ecosystem-exporter?style=social" alt="GitHub Repo">
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Function to extract Twitter handle from a Twitter URL
-def extract_twitter_handle(url):
-    if not url:
-        return "N/A"
-    match = re.search(r'twitter\.com/([^/\?]+)', url)
-    if match:
-        return "@" + match.group(1)
-    return url
-
-# Main scraping function
-def scrape_beraland_ecosystem():
-    # Open the webpage
-    print("Opening Beraland Ecosystem page...")
-    driver.get("https://app.beraland.xyz/dl/Ecosystem")
+def main():
+    # Render the header
+    render_header()
     
-    # Wait for the page to load (adjust timeout as needed)
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, ".ecosystem-grid, .project-card, div[role='grid']"))
-    )
-    print("Page loaded successfully")
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs(["Exporter", "Results", "Help"])
     
-    # Find all project cards
-    # Note: The actual selector may differ based on the website's HTML structure
-    try:
-        project_cards = driver.find_elements(By.CSS_SELECTOR, ".project-card, .card, div[role='gridcell']")
-        print(f"Found {len(project_cards)} project cards")
-    except Exception as e:
-        print(f"Error finding project cards: {e}")
-        project_cards = []
+    with tab1:
+        st.subheader("Export Projects")
+        
+        # Options
+        col1, col2 = st.columns(2)
+        with col1:
+            headless = st.checkbox("Run in headless mode", value=True, 
+                                  help="Run browser without UI (faster but you won't see the process)")
+        with col2:
+            wait_time = st.slider("Wait time between actions (seconds)", 0.5, 3.0, 1.5,
+                                 help="Increase this if the scraper is missing information")
+        
+        # Start button
+        start_col, _ = st.columns([1, 2])
+        with start_col:
+            start_button = st.button("🚀 Start Scraping", type="primary", use_container_width=True)
+        
+        # Progress indicators
+        progress_bar = st.progress(0)
+        status_container = st.container()
+        status_text = status_container.empty()
+        
+        # Results placeholder
+        if "projects_df" not in st.session_state:
+            st.session_state.projects_df = None
     
-    # Prepare results list
-    projects_data = []
+    with tab2:
+        st.subheader("Extracted Data")
+        
+        # Show results if available
+        if st.session_state.get("projects_df") is not None and not st.session_state.projects_df.empty:
+            st.dataframe(st.session_state.projects_df, use_container_width=True)
+            
+            # Download options
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(get_csv_download_link(st.session_state.projects_df), unsafe_allow_html=True)
+            with col2:
+                st.markdown(get_excel_download_link(st.session_state.projects_df), unsafe_allow_html=True)
+            
+            # Stats
+            st.metric("Total Projects", len(st.session_state.projects_df))
+        else:
+            st.info("No data available yet. Run the scraper in the Exporter tab to see results here.")
     
-    # Loop through each project card
-    for i, card in enumerate(project_cards):
+    with tab3:
+        st.subheader("Help & Information")
+        
+        st.markdown("""
+        ### How to use this app
+        
+        1. Go to the **Exporter** tab
+        2. Click the **Start Scraping** button
+        3. Wait for the scraping process to complete
+        4. View and download results in the **Results** tab
+        
+        ### What this app does
+        
+        This app automatically visits the [Beraland Ecosystem page](https://app.beraland.xyz/dl/Ecosystem) and extracts information about all projects, including:
+        
+        - Project names
+        - Categories/tags
+        - Twitter accounts
+        
+        ### Troubleshooting
+        
+        If the app isn't working correctly:
+        
+        - Increase the **Wait time** slider to give the page more time to load
+        - Uncheck **Run in headless mode** to see what's happening
+        - Make sure you have a stable internet connection
+        - Try running the app again if it fails
+        
+        ### About
+        
+        This app was created as an open-source tool to help track and analyze the Berachain ecosystem.
+        
+        [View source code on GitHub](https://github.com/yourusername/beraland-ecosystem-exporter)
+        """)
+    
+    # Run the scraper when button is clicked
+    if start_button:
+        status_text.text("Setting up web driver...")
+        
+        # Initialize the scraper
+        scraper = BeralandScraper(
+            headless=headless,
+            wait_time=wait_time,
+            progress_callback=lambda progress: progress_bar.progress(progress),
+            status_callback=lambda text: status_text.text(text)
+        )
+        
         try:
-            # Extract project name from the card
-            project_name = card.text.split('\n')[0] if card.text else f"Project {i+1}"
-            print(f"Processing {project_name}...")
+            # Run the scraper
+            df = scraper.scrape_projects()
             
-            # Click on the card to open details
-            card.click()
+            # Store results in session state
+            st.session_state.projects_df = df
             
-            # Wait for details modal to appear
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".modal, .project-details, .dialog"))
-            )
-            
-            # Extract details
-            time.sleep(1)  # Short pause to ensure content is loaded
-            
-            # Get project category
-            try:
-                category_element = driver.find_element(By.CSS_SELECTOR, ".category, .tags, .project-type")
-                category = category_element.text
-            except:
-                category = "N/A"
-            
-            # Get Twitter link
-            twitter_url = ""
-            try:
-                # Look for Twitter button/link
-                twitter_element = driver.find_element(
-                    By.CSS_SELECTOR, 
-                    "a[href*='twitter'], button[data-social='twitter'], .twitter-link"
-                )
-                twitter_url = twitter_element.get_attribute("href")
-            except:
-                twitter_url = "N/A"
-            
-            # Extract Twitter handle from URL
-            twitter_handle = extract_twitter_handle(twitter_url)
-            
-            # Add to results
-            projects_data.append({
-                "Project Name": project_name,
-                "Category": category,
-                "Twitter URL": twitter_url,
-                "Twitter Handle": twitter_handle
-            })
-            
-            # Close the modal
-            try:
-                close_button = driver.find_element(By.CSS_SELECTOR, ".close-button, button[aria-label='Close']")
-                close_button.click()
-                time.sleep(0.5)  # Wait for modal to close
-            except:
-                # Try pressing ESC key if button not found
-                from selenium.webdriver.common.keys import Keys
-                webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                time.sleep(0.5)
-                
+            # Show success and switch to Results tab
+            if df is not None and not df.empty:
+                status_text.success(f"✅ Successfully extracted {len(df)} projects!")
+                time.sleep(1)
+                st.experimental_rerun()  # Switch to Results tab
+            else:
+                status_text.error("No data was found. Please try again or adjust settings.")
+        
         except Exception as e:
-            print(f"Error processing card {i+1}: {e}")
-            continue
-    
-    return projects_data
+            status_text.error(f"An error occurred: {str(e)}")
+            
+            # Debug info
+            with st.expander("Error details"):
+                st.code(str(e))
+                
+                # Show screenshot if available
+                debug_screenshot = "debug_screenshot.png"
+                if os.path.exists(debug_screenshot):
+                    st.image(debug_screenshot, caption="Debug screenshot")
 
-# Run the scraper
-try:
-    print("Starting the scraper...")
-    projects_list = scrape_beraland_ecosystem()
-    
-    # Save to CSV
-    with open('beraland_projects.csv', 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['Project Name', 'Category', 'Twitter URL', 'Twitter Handle']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for project in projects_list:
-            writer.writerow(project)
-    
-    print(f"Scraping completed. Found {len(projects_list)} projects. Data saved to beraland_projects.csv")
-    
-    # Display results
-    print("\nResults:")
-    for project in projects_list:
-        print(f"{project['Project Name']} ({project['Category']}) - {project['Twitter Handle']}")
-    
-except Exception as e:
-    print(f"An error occurred: {e}")
-
-finally:
-    # Clean up
-    driver.quit()
-    print("Browser closed")
+if __name__ == "__main__":
+    main()
