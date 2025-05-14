@@ -31,15 +31,17 @@ with st.sidebar:
                     response.raise_for_status()
                     soup = BeautifulSoup(response.content, "html.parser")
 
+                    # Grab all hrefs and filter twitter handles manually
                     handles = []
-                    links = soup.find_all("a", href=re.compile(r"^https://twitter.com/[^/]+/?$"))
+                    links = soup.find_all("a", href=True)
                     for link in links:
                         href = link.get("href")
-                        match = re.search(r"twitter\.com/([^/?]+)", href)
-                        if match:
-                            handle = match.group(1)
-                            if handle.lower() != "share":
-                                handles.append(handle)
+                        if href and "twitter.com" in href:
+                            match = re.search(r"twitter\.com/([^/?]+)", href)
+                            if match:
+                                handle = match.group(1)
+                                if handle.lower() != "share":
+                                    handles.append(handle)
 
                     return sorted(set(handles))
 
