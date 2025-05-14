@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import re
+from urllib.parse import urljoin
 
 # Set page config
 st.set_page_config(
@@ -23,33 +24,50 @@ with st.sidebar:
     if st.button("Scrape Data"):
         with st.spinner("Scraping data..."):
             try:
-                def scrape_beraland_handles(scrape_url):
+                def scrape_project_links(base_url):
                     headers = {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                     }
-                    response = requests.get(scrape_url, headers=headers)
+                    response = requests.get(base_url, headers=headers)
                     response.raise_for_status()
                     soup = BeautifulSoup(response.content, "html.parser")
+                    project_links = []
+                    for link in soup.find_all("a", href=True):
+                        href = link.get("href")
+                        if "/dl/Ecosystem/m/" in href:
+                            full_link = urljoin(base_url, href)
+                            project_links.append(full_link)
+                    return sorted(set(project_links))
 
-                    # Grab all hrefs and filter twitter handles manually
-                    handles = []
-                    links = soup.find_all("a", href=True)
-                    for link in links:
+                def extract_twitter_from_project(project_url):
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    }
+                    response = requests.get(project_url, headers=headers)
+                    if response.status_code != 200:
+                        return None
+                    soup = BeautifulSoup(response.content, "html.parser")
+                    for link in soup.find_all("a", href=True):
                         href = link.get("href")
                         if href and "twitter.com" in href:
                             match = re.search(r"twitter\.com/([^/?]+)", href)
                             if match:
                                 handle = match.group(1)
                                 if handle.lower() != "share":
-                                    handles.append(handle)
+                                    return handle
+                    return None
 
-                    return sorted(set(handles))
+                project_urls = scrape_project_links(url)
+                twitter_handles = []
+                for project_url in project_urls:
+                    handle = extract_twitter_from_project(project_url)
+                    if handle:
+                        twitter_handles.append(handle)
 
-                handles = scrape_beraland_handles(url)
-                df = pd.DataFrame(handles, columns=["Twitter Handle"])
+                df = pd.DataFrame(sorted(set(twitter_handles)), columns=["Twitter Handle"])
                 st.session_state.df = df
                 st.session_state.scraped = True
-                st.success("Data scraped successfully!")
+                st.success(f"Scraped {len(df)} Twitter handles successfully!")
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
