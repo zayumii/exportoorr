@@ -17,7 +17,7 @@ st.markdown("Export data from Beraland easily")
 # Create sidebar for inputs
 with st.sidebar:
     st.header("Settings")
-    url = st.text_input("Enter Beraland URL", "https://example.com/beraland")
+    url = st.text_input("Enter Beraland URL", "https://app.beraland.xyz/dl/Ecosystem")
     
     if st.button("Scrape Data"):
         with st.spinner("Scraping data..."):
