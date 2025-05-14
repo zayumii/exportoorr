@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from playwright.sync_api import sync_playwright
+import requests
+from bs4 import BeautifulSoup
 import re
 
 # Set page config
@@ -23,23 +24,23 @@ with st.sidebar:
         with st.spinner("Scraping data..."):
             try:
                 def scrape_beraland_handles(scrape_url):
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    }
+                    response = requests.get(scrape_url, headers=headers)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.content, "html.parser")
+
                     handles = []
-                    with sync_playwright() as p:
-                        browser = p.chromium.launch(headless=True)
-                        page = browser.new_page()
-                        page.goto(scrape_url, timeout=60000)
-                        page.wait_for_selector("a[href^='https://twitter.com/']")
+                    links = soup.find_all("a", href=re.compile(r"^https://twitter.com/[^/]+/?$"))
+                    for link in links:
+                        href = link.get("href")
+                        match = re.search(r"twitter\.com/([^/?]+)", href)
+                        if match:
+                            handle = match.group(1)
+                            if handle.lower() != "share":
+                                handles.append(handle)
 
-                        links = page.query_selector_all("a[href^='https://twitter.com/']")
-                        for link in links:
-                            href = link.get_attribute("href")
-                            match = re.search(r"twitter\\.com/([^/?]+)", href)
-                            if match:
-                                handle = match.group(1)
-                                if handle.lower() != "share":
-                                    handles.append(handle)
-
-                        browser.close()
                     return sorted(set(handles))
 
                 handles = scrape_beraland_handles(url)
